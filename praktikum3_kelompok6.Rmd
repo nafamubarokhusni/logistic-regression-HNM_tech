@@ -1,0 +1,259 @@
+---
+title: "Tugas praktikum 2"
+author: 'kelompok 6 '
+date: "2023-03-07"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Tugas Kelompok 6 SSD Modul 2
+
+Kelompok 6:
+
+Anggota :
+
+\- A Rafi Paringgom Iwari_121450039
+
+\- Husni Na'fa Mubarok_121450078
+
+\- Anisa Dini Amalia_121450081
+
+\- Vanessa Olivia Rose_121450108
+
+\- Lia Alyani_121450138
+
+[Download Data](https://archive.ics.uci.edu/ml/datasets/Higher+Education+Students+Performance+Evaluation+Dataset)
+
+## Import Library
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(rlist)
+library(MASS)
+library(caret)
+library(tidyverse)
+library(gains)
+library(leaps)
+library(pROC)
+library(rpart)
+library(rpart.plot)
+library(ROSE)
+library(ggrepel)
+library(ggthemes)
+library(class)
+```
+
+## Import Data
+
+### Menghapus Data Duplikat
+
+```{r}
+haberman <- read.csv("haberman.csv", header = FALSE)
+```
+
+```{r}
+haberman<- haberman %>% distinct()
+```
+
+```{r}
+dim(haberman)
+```
+
+### Import Data dan ubah Header
+
+```{r}
+dt <- haberman
+colnames(dt)<- c('Age', 'Year', 'Axillary_nodes_dect', 'Survstatus')
+
+```
+
+#### **Informasi Atribut :**
+
+1\. Usia pasien pada saat operasi (numerik)\
+2. Tahun operasi pasien (tahun - 1900, numerik)\
+3. Jumlah kelenjar aksila positif yang terdeteksi (numerik)\
+4. Status kelangsungan hidup (atribut kelas)\
+\-- 1 = pasien bertahan 5 tahun atau lebih\
+\-- 2 = pasien meninggal dalam waktu 5 tahun
+
+#### Mengubah nilai kolom year
+
+```{r}
+dt$Year<- dt$Year+1900
+```
+
+#### Mengubah tipe data tiap kolom
+
+```{r}
+dt$Age <- factor(dt$Age)
+dt$Year <- factor(dt$Year)
+dt$Axillary_nodes_dect<- factor(dt$Axillary_nodes_dect)
+dt$Survstatus<- factor(dt$Survstatus)
+```
+
+#### Cek Missing Value
+
+```{r}
+library(skimr)
+skim_without_charts(dt)
+```
+
+#### Persentase Distribusi Bertahan Hidup
+
+```{r}
+dt%>%group_by(Survstatus)%>%summarise(count=n())%>%
+  mutate(per = round(count/sum(count),2)*100)%>%
+  ggplot(aes(x = "", y = per, fill = Survstatus))+
+  geom_col(color = "black") +
+  geom_text(aes(label = paste0(per, "%")), position = position_stack(vjust=0.5))+
+  coord_polar(theta = "y") +
+  scale_fill_brewer() +theme_void()+
+  theme(plot.title = element_text(hjust = 0.5))+
+  labs(title = "Persentase Distribusi Bertahan Hidup", fill = "Survival Status")
+```
+
+#### Proporsi Bertahan Hidup berdasarkan usia
+
+```{r}
+dt %>%
+  ggplot(aes(Age, Year,label = Axillary_nodes_dect
+  )) +
+  geom_point(aes(col = Survstatus  ), size = 3) +
+  geom_text_repel() +
+  xlab("Usia pasien pada saat operasi") +
+  ylab("Tahun operasi") +
+  scale_color_discrete(name = "Survival Status 5 tahun kemudian?") +
+  theme_economist()
+```
+
+#### Proporsi Status Bertahan hidup berdasarkan Tahun Operasi
+
+```{r}
+ggplot(dt, aes(x=Year, fill = Survstatus)) + geom_bar(position = "fill") +
+  ylab("proportion")
+```
+
+#### Proporsi Status Bertahan Hidup berdasarkan Axillary Node
+
+```{r}
+ggplot(dt, aes(x=Axillary_nodes_dect, fill = Survstatus)) + geom_bar(position = "fill") +
+  ylab("proportion")
+```
+
+### Import Data untuk Klasifikasi
+
+```{r}
+df<-haberman
+colnames(df)<- c('Age', 'Year', 'Axillary_nodes_dect', 'Survstatus')
+df$Survstatus<- factor(df$Survstatus)
+```
+
+#### Mempartisi Data
+
+```{r}
+set.seed(123)
+df_split = sort(sample(nrow(df), nrow(df)*0.8)) ## 80% of the dataset randomly selected
+train<-df[df_split,]
+test<-df[-df_split,]
+```
+
+## Perbandingan Klasifikasi
+
+### Model Regresi Logistik
+
+```{r}
+df_logit <- glm(Survstatus~., data = train,family = "binomial"(link="logit"))
+```
+
+#### Rangkuman Model Regresi
+
+```{r}
+summary(df_logit)
+```
+
+#### Akurasi prediksi dari model regresi logistik
+
+```{r}
+fitted.results <- predict(df_logit,newdata=test,type='response')
+fitted.results <- ifelse(fitted.results > 0.5,2,1)
+table(fitted.results,test$Survstatus)
+```
+
+```{r}
+Accuracy.logistic <- round(mean(fitted.results == test$Survstatus), digits = 2)*100
+print(paste('Accuracy is ',Accuracy.logistic,"%"))
+```
+
+```{r}
+print(paste('Test error is ',100-Accuracy.logistic,"%"))
+```
+
+#### ROC and AUC
+
+```{r}
+library("ROCR")
+predict <- fitted(df_logit)
+pred <- prediction(predict, train$Survstatus)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr")
+plot(perf, main="sensitivity vs false positive rate",colorize=TRUE)
+```
+
+### **Linear discriminant analysis (LDA)**
+
+```{r}
+lda.fit=lda(Survstatus~., data = train)
+lda.fit
+```
+
+#### **Akurasi prediksi model LDA**
+
+```{r}
+lda.pred=predict(lda.fit,test)
+lda.class =lda.pred$class
+table(lda.class, test$Survstatus)
+```
+
+```{r}
+accuracy.lda <- round(mean(lda.class == test$Survstatus), digits =2)*100
+print(paste('Accuracy is ',accuracy.lda,"%"))
+```
+
+```{r}
+print(paste('Test error is ',100-accuracy.lda,"%"))
+```
+
+### **KNN (K-Nearest Neighbour) model**
+
+```{r}
+train.Y <- train[,4] # extract the response variable in the training dataset
+test.Y <- test[,4] # extract the response variable in the test dataset
+train.X <- scale(train[,-4]) # normalize the predictor variables in the training dataset
+test.X <- scale(test[,-4]) # normalize the predictor variables in the test dataset
+```
+
+#### memilih nilai terbaik untuk k
+
+```{r}
+for (i in 1:25){
+  knn.pred <- knn(train.X,test.X,train.Y,k=i)
+  print(paste("accuracy for k =", i, "is ",round(mean(test.Y == knn.pred), digits = 2)))
+}
+```
+
+#### Akurasi prediksi model KNN
+
+```{r}
+knn.pred <- knn(train.X,test.X,train.Y,k=25)
+table(knn.pred, test.Y)
+```
+
+```{r}
+accuracy.knn <- round(mean(test.Y == knn.pred), digits = 2)*100
+print(paste('Accuracy is ',accuracy.knn,"%"))
+```
+
+```{r}
+print(paste('Test error is ',100-accuracy.knn,"%"))
+```
